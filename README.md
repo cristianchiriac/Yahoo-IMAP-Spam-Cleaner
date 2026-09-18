@@ -1,397 +1,263 @@
-# 🛡️ Bulletproof IMAP Spam Filter
+<div align="center">
 
-**Automated IMAP spam, phishing & spoofing protection with VirusTotal integration.**
+# 🛡️ Yahoo IMAP Scanner
+### *Local Mail Guardian*
 
-A resilient Python-based email filtering script designed for **Yahoo Mail and other IMAP providers**. It combines fast local heuristics with VirusTotal URL analysis to detect and safely quarantine unwanted emails while handling **network drops, IMAP rate limits, reconnects, and API quotas**.
+**A local-first, privacy-first spam & phishing scanner for Yahoo Mail.**
+No cloud backend. No accounts. No telemetry. Everything runs on your own machine.
 
-> ⚠️ **Designed for safety first:** suspicious messages are moved to **Trash** instead of being permanently deleted, and a **dry-run mode** is available for testing.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![Tests: 119 passing](https://img.shields.io/badge/tests-119%20passing-brightgreen)](#development--testing)
+[![Dry run by default](https://img.shields.io/badge/default%20mode-dry--run-success)](#safety-model)
 
----
-
-## ✨ Features
-
-| Feature                       | Description                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------- |
-| ⚡ **Cascade Filtering**       | Runs cheap local checks first and uses VirusTotal only when necessary.                      |
-| 🕵️ **Anti-Spoofing**         | Detects emails impersonating your own address and checks authentication headers.            |
-| 🔐 **SPF / DMARC Validation** | Flags messages that fail key email authentication checks.                                   |
-| 🦠 **VirusTotal Integration** | Extracts URLs from emails and checks suspicious links for malware/phishing.                 |
-| 🛡️ **Rate-Limit Protection** | Uses exponential backoff and controlled reconnects to reduce the risk of provider/API bans. |
-| 🔄 **UID-Based Processing**   | Uses IMAP UIDs so the script can resume safely after connection failures.                   |
-| 🗑️ **Safe Quarantine**       | Moves suspicious messages to `Trash` instead of permanently deleting them.                  |
-| 🧪 **Dry-Run Mode**           | Test filtering rules without modifying your mailbox.                                        |
-| 🚀 **Long-Running Execution** | Built to process large inboxes without failing on temporary network issues.                 |
+</div>
 
 ---
 
-## 🧠 How It Works
+Detects phishing, spoofing, brand impersonation, and suspicious URLs by evaluating each message against a
+layered, **explainable** rule engine — every verdict shows exactly which signals fired and why, never just a
+pass/fail label. Usable as a **CLI** or as a **local web app** with live scan progress and an analytics
+dashboard; both share the same detection engine, so results are always identical.
 
-The filter uses a **short-circuit cascade**. Each message is evaluated from the fastest and safest checks to the more expensive ones.
+## Contents
 
-```text
-                    ┌───────────────────────┐
-                    │      Incoming Mail     │
-                    └───────────┬───────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │  1. Self-Sent Check   │
-                    └───────────┬───────────┘
-                                │
-                        Legitimate sender?
-                         ┌──────┴──────┐
-                         │             │
-                        YES            NO
-                         │             │
-                         ▼             ▼
-                      KEEP       ┌───────────────┐
-                                 │ 2. Spoofing   │
-                                 │    Check      │
-                                 └───────┬───────┘
-                                         │
-                                         ▼
-                                 ┌───────────────┐
-                                 │ 3. Domain     │
-                                 │    Blocklist  │
-                                 └───────┬───────┘
-                                         │
-                                         ▼
-                                 ┌───────────────┐
-                                 │ 4. SPF/DMARC  │
-                                 └───────┬───────┘
-                                         │
-                                         ▼
-                                 ┌───────────────┐
-                                 │ 5. Empty      │
-                                 │    Subject    │
-                                 └───────┬───────┘
-                                         │
-                                         ▼
-                                 ┌───────────────┐
-                                 │ 6. Spam Regex │
-                                 │    Keywords   │
-                                 └───────┬───────┘
-                                         │
-                                         ▼
-                                 ┌───────────────┐
-                                 │ 7. VirusTotal │
-                                 │    URL Scan   │
-                                 └───────┬───────┘
-                                         │
-                              Malicious URL found?
-                                ┌────────┴────────┐
-                                │                 │
-                               YES                NO
-                                │                 │
-                                ▼                 ▼
-                           🗑️ TRASH            ✅ KEEP
-```
+- [What it does](#what-it-does)
+- [What it does NOT do](#what-it-does-not-do)
+- [Safety model](#safety-model)
+- [Installation](#installation)
+- [Yahoo App Password setup](#yahoo-app-password-setup)
+- [Configuration](#configuration)
+- [CLI usage](#cli-usage)
+- [Local web app](#local-web-app)
+- [Detection signals](#detection-signals)
+- [Reports](#reports)
+- [VirusTotal](#virustotal-optional-privacy-sensitive)
+- [Resumable scanning & rate limits](#resumable-scanning--provider-rate-limits)
+- [Limitations](#limitations)
+- [Retention](#retention)
+- [Development / testing](#development--testing)
+- [Security considerations](#security-considerations)
 
-### Filtering Order
+## What it does
 
-1. **Self-Sent Failsafe**
-   Messages genuinely sent from your own address are preserved.
+| | |
+|---|---|
+| 🔍 **Explainable detection** | Layered signals — spoofed sender, blocked/impersonated domains, SPF/DMARC results, Reply-To/Return-Path mismatches, brand-name mismatches, gibberish sender addresses, subject obfuscation, suspicious URLs — each with its own weight, shown in every finding. |
+| 🖥️ **CLI + local web app** | `spam_filter.py` for scripting/cron, or `run_web.py` for a full browser UI with live scan console and an analytics dashboard. Same engine, same results. |
+| 📁 **Multi-folder scans** | Scan one folder or every discovered folder in one run — no artificial limit on mailbox size. |
+| ♻️ **Safe by default** | Dry-run never modifies anything; a folder is opened `EXAMINE`-only and messages are fetched with `BODY.PEEK[]`, so nothing is ever marked read just by scanning it. |
+| 🧠 **Resilient scanning** | Reconnects automatically if the provider drops the connection (e.g. Yahoo's rate-limit "logging out"), paces requests to avoid triggering that in the first place, and resumes from a SQLite checkpoint instead of rescanning everything. |
+| 🕵️ **Optional VirusTotal** | URL reputation enrichment, off by default, with a clear privacy disclosure when enabled. |
+| 📊 **JSON + HTML reports** | Generated from one shared data source, so they can never disagree. |
 
-2. **Spoofing Detection**
-   Detects messages that imitate your display name or sender identity while using a different address.
+## What it does NOT do
 
-3. **Blocked Domains**
-   Known spam, scam, casino, or otherwise unwanted domains are immediately quarantined.
+- It is **not** a full antivirus/malware scanner for attachments.
+- It does **not** guarantee identical behavior on non-Yahoo IMAP providers — only Yahoo is actually tested.
+- It never permanently deletes mail as part of normal operation (see [Safety model](#safety-model) for the one
+  explicit, opt-in exception).
 
-4. **SPF / DMARC Authentication**
-   Messages failing configured authentication checks are flagged.
+## Safety model
 
-5. **Empty Subject Detection**
-   Emails with completely empty subjects can be quarantined.
+- **Dry-run is the default.** Running `python spam_filter.py` with no flags never changes your mailbox: folders
+  are opened with `EXAMINE` (read-only) and messages are fetched with `BODY.PEEK[]`, so nothing is marked
+  `\Seen` just by being scanned.
+- **`--apply` is the only way to change your mailbox**, and it asks for interactive confirmation (or `--yes` to
+  skip that prompt in non-interactive use).
+- Detected spam is moved — never deleted — to a dedicated `Scanner Quarantine` folder using server-side
+  `UID MOVE`. If the server doesn't support `MOVE`, apply **fails closed**: nothing is touched, and no
+  destructive `COPY` + `STORE \Deleted` + `EXPUNGE` fallback is ever used, because `EXPUNGE` can permanently
+  remove other flagged messages too.
+- **One explicit, scoped exception** (web UI only): the "Block address & delete" / "Block domain & delete"
+  buttons on a finding permanently delete *that one message*, in addition to blocking the address/domain for
+  future scans. This is opt-in per click, requires a confirmation dialog stating the action is irreversible,
+  and uses a targeted `UID EXPUNGE` for that single UID (never a blanket `EXPUNGE`). Every other action in
+  the app — dry-run, normal `--apply`, CLI usage — never deletes anything.
 
-6. **Regex Spam Detection**
-   Searches the subject/body for configurable spam and phishing keywords.
-
-7. **VirusTotal URL Analysis**
-   URLs from messages that survive the previous checks are extracted and suspicious links are analyzed using VirusTotal.
-
----
-
-## 🛡️ Resilience & Reliability
-
-The script is designed for environments where an IMAP connection cannot be assumed to remain stable.
-
-### 🔄 UID-Based Resume
-
-Instead of relying on volatile IMAP sequence numbers, messages are processed using **UIDs**.
-
-This means that after a connection failure, the script can reconnect and continue processing without unnecessarily restarting or skipping messages.
-
-### ⏳ Exponential Backoff
-
-Temporary failures such as:
-
-* network interruptions
-* IMAP timeouts
-* API rate limits
-* temporary server errors
-
-are handled using **exponential backoff**, reducing repeated connection attempts.
-
-### 🔌 Connection Cycling
-
-Long-running sessions can periodically reconnect to avoid accumulating stale connections or triggering provider-side limits.
-
-For example, the script can safely cycle the IMAP connection after a configured number of processed emails.
-
----
-
-## 🚀 Installation
-
-### Requirements
-
-* **Python 3.7+**
-* An IMAP-enabled mailbox
-* Yahoo Mail App Password or equivalent provider credential
-* VirusTotal API key
-
-### 1. Clone the Repository
+## Installation
 
 ```bash
 git clone https://github.com/Tatamis/Yahoo-IMAP-Spam-Cleaner.git
-cd Bulletproof-IMAP-Spam-Filter
-```
-
-### 2. Install Dependencies
-
-Install the required Python packages:
-
-```bash
+cd Yahoo-IMAP-Spam-Cleaner
 pip install -r requirements.txt
 ```
 
-If the project does not include a `requirements.txt` file and only requires `requests`:
+Requires Python 3.10+.
+
+## Yahoo App Password setup
+
+Yahoo requires an **app password**, not your normal account password, for IMAP access:
+
+1. Yahoo Account Security settings → *Generate app password*.
+2. Choose "Other App" and name it (e.g. "IMAP Scanner").
+3. Use the generated password as `APP_PASSWORD` below — never your real Yahoo password.
+
+## Configuration
+
+Copy the example config and fill in your own values (never commit this file):
 
 ```bash
-pip install requests
+cp config.example.json config.local.json
 ```
 
----
-
-## ⚙️ Configuration
-
-Open the main Python script and configure your mailbox and VirusTotal credentials:
-
-```python
-EMAIL = "your_email@yahoo.com"
-APP_PASSWORD = "your_app_password"
-IMAP_SERVER = "imap.mail.yahoo.com"
-
-VT_API_KEY = "your_virustotal_api_key"
+```json
+{
+  "email": "your_email@yahoo.com",
+  "app_password": "your_app_password",
+  "imap_server": "imap.mail.yahoo.com",
+  "folders": ["INBOX"],
+  "quarantine_folder": "Scanner Quarantine",
+  "blocked_domains": [],
+  "safe_domains": ["google.com", "apple.com", "microsoft.com"],
+  "spam_keywords": [],
+  "regex_rules": [],
+  "spoof_identifiers": [],
+  "score_threshold": 60,
+  "virustotal_enabled": false,
+  "vt_api_key": "",
+  "vt_min_malicious_votes": 2,
+  "store_subject_in_checkpoint": false,
+  "max_retries": 3,
+  "backoff_base_seconds": 2.0,
+  "backoff_max_seconds": 120.0,
+  "state_db_path": "state.db"
+}
 ```
 
-### 🔐 Important
-
-Use an **App Password** instead of your normal mailbox password whenever your provider supports it.
-
-Never commit secrets directly to GitHub.
-
-A better production setup is to load credentials from environment variables:
+Environment variables `EMAIL`, `APP_PASSWORD`, `IMAP_SERVER`, and `VT_API_KEY` always override the config
+file, so you can keep secrets entirely out of any file on disk:
 
 ```bash
 export EMAIL="your_email@yahoo.com"
 export APP_PASSWORD="your_app_password"
-export VT_API_KEY="your_virustotal_api_key"
 ```
 
----
+`config.local.json`, `state.db`, and `reports/` are all git-ignored by default.
 
-## 🎯 Customize the Filtering Rules
-
-The filtering engine is intentionally configurable.
-
-### 🚫 `BLOCKED_DOMAINS`
-
-Add domains that should be immediately quarantined:
-
-```python
-BLOCKED_DOMAINS = {
-    "example-spam.com",
-    "example-casino.com",
-}
-```
-
-### 🔎 `SPAM_KEYWORDS`
-
-Customize the regex patterns according to the type of spam you receive:
-
-```python
-SPAM_KEYWORDS = [
-    r"\bcasino\b",
-    r"\bfree money\b",
-    r"\bbitcoin giveaway\b",
-]
-```
-
-This can be extended with localized scam patterns, fake dating alerts, cryptocurrency scams, phishing messages, and other recurring spam themes.
-
-### ✅ `SAFE_DOMAINS`
-
-Trusted domains can bypass VirusTotal URL scanning:
-
-```python
-SAFE_DOMAINS = {
-    "google.com",
-    "apple.com",
-    "microsoft.com",
-}
-```
-
-This helps reduce unnecessary VirusTotal API usage.
-
----
-
-## 🧪 Dry-Run Mode
-
-**Always test new filtering rules before enabling automatic quarantine.**
-
-Enable:
-
-```python
-DRY_RUN = True
-```
-
-Then run:
+## CLI usage
 
 ```bash
-python spam_filter.py
+# See what folders exist on the server
+python spam_filter.py --config config.local.json --list-folders
+
+# Safe dry run (default) — nothing is ever modified
+python spam_filter.py --config config.local.json
+
+# Only show/report flagged messages, with JSON + HTML output
+python spam_filter.py --config config.local.json --only-spam \
+  --json-report reports/scan.json --html-report reports/scan.html
+
+# Rescan ignoring the saved checkpoint
+python spam_filter.py --config config.local.json --recheck
+
+# Actually move detected spam to "Scanner Quarantine" (asks for confirmation)
+python spam_filter.py --config config.local.json --apply
+
+# Same, but skip the interactive prompt (e.g. for scheduled runs)
+python spam_filter.py --config config.local.json --apply --yes
 ```
 
-In dry-run mode, the script evaluates messages and reports what it *would* do without moving emails.
-
-Once you're confident there are no false positives:
-
-```python
-DRY_RUN = False
-```
-
-Run the script again:
+## Local web app
 
 ```bash
-python spam_filter.py
+pip install -r requirements.txt
+python run_web.py
 ```
 
----
+Opens at `http://127.0.0.1:8765` only — it never binds `0.0.0.0` and refuses requests with an unrecognized
+`Host` header. Workflow: enter credentials (held in memory for the running process only, never written to
+disk or echoed back by the API) → test connection → discover folders → run a dry-run scan with live progress
+→ review findings → optionally confirm apply (moves spam via `UID MOVE` to your quarantine folder) → download
+JSON/HTML reports → clear scan history or reset IMAP checkpoints independently from the privacy panel.
 
-## 📂 Recommended Project Structure
+State-changing requests require a per-process CSRF token (fetched from `/api/csrf-token` and sent as
+`X-CSRF-Token`) and are rejected if their `Origin` doesn't match `127.0.0.1:8765`/`localhost:8765`.
 
-```text
-Bulletproof-IMAP-Spam-Filter/
-│
-├── spam_filter.py
-├── requirements.txt
-├── README.md
-├── .gitignore
-└── LICENSE
+## Detection signals
+
+Every signal contributes a configurable weight toward a message's score (default threshold: **60**); a
+handful are *hard matches* that flag a message as spam regardless of score.
+
+| Signal | Weight | Hard match | What it means |
+|---|---|:---:|---|
+| `spoofed_sender` | 100 | ✅ | Display name/address impersonates a protected identity you configured |
+| `blocked_domain` / `blocked_sender` | 100 | ✅ | Sender domain/address is on your blocklist |
+| `brand_impersonation` | 100 | ✅ | Reply-To/Return-Path claims a protected brand domain (bank, Amazon, PayPal, …) unrelated to the actual sending domain |
+| `blocked_url` | 100 | ✅ | A link in the body points to a blocked domain |
+| `virustotal_malicious` | 100 | ✅ | VirusTotal flagged a URL (only if you've enabled it) |
+| `auth_hard_fail` / `auth_soft_fail` / `auth_missing` | 40 / 20 / 15 | | SPF/DMARC result |
+| `gibberish_localpart` | 40 | | Sender address looks auto-generated (e.g. `ThermalConductivityGasDetector@…`) |
+| `keyword_subject` / `keyword_body` | 35 / 25 | | Matches your configured spam keywords |
+| `subject_obfuscation` | 30 | | Irregular spacing used to dodge keyword filters |
+| `regex_rule` / `brand_name_mismatch` | 30 | | Matches a custom rule / mentions a brand name from an unrelated domain |
+| `reply_to_mismatch` / `return_path_mismatch` | 20 / 15 | | Domain unrelated to the sender (subdomain-aware — legitimate ESP bounce addresses don't trigger this) |
+| `empty_subject` | 15 | | Subject is blank |
+| `suspicious_url` | 10 | | Link to a domain that's neither trusted nor related to the sender (excludes the sender's own domain) |
+
+All weights, the threshold, and every blocklist/allowlist are configurable — see [Configuration](#configuration).
+
+## Reports
+
+`--json-report` and `--html-report` are both built from the same in-memory findings — they can never disagree.
+The JSON schema includes, per finding: `uid`, `subject`, `sender`, `verdict`, `score`, `matched_hard_rule`, and
+the list of `signals` that contributed. The HTML report is a single self-contained file (no external JS/CSS)
+with a summary dashboard and a client-side search/filter box.
+
+## VirusTotal (optional, privacy-sensitive)
+
+VirusTotal enrichment is **off by default**. If you set `virustotal_enabled: true` and a `vt_api_key`,
+**URLs extracted from your email will be sent to VirusTotal's servers** for the messages that reach that stage
+of the detection cascade. If a VT lookup times out, is rate-limited, or returns a malformed response, the
+message is marked **incomplete/unknown** — it is never treated as "clean" just because VT didn't answer.
+
+## Resumable scanning & provider rate limits
+
+Scan progress is checkpointed in a local SQLite database (`state.db` by default), keyed by
+`(account, folder, UIDVALIDITY)`. If the server ever changes a folder's `UIDVALIDITY` (which can happen after
+certain server-side operations), that folder's checkpoint is automatically invalidated and rescanned from
+scratch, since old UIDs can no longer be trusted. Only technical fields needed to resume are stored — full
+message bodies are never persisted. Storing subjects in the checkpoint DB is opt-in
+(`store_subject_in_checkpoint`).
+
+There's no artificial cap on how many messages a scan processes. To avoid triggering the provider's own
+rate-limiting (Yahoo will actively close a session that sends commands too fast — surfaced as
+`Server logging out`), the scanner paces requests with a small per-message delay and periodically cycles the
+connection (`request_delay_seconds`, `pause_every_messages`, `pause_seconds` — all configurable). If the
+connection still drops mid-scan, it reconnects with exponential backoff and resumes from the current message
+instead of failing the whole run; if the folder's UIDVALIDITY changed in the meantime, it stops that folder
+cleanly and lets the checkpoint safely rescan it next time.
+
+## Limitations
+
+- Not an antivirus engine — attachments are not scanned for malware.
+- Only Yahoo Mail is actually verified; other IMAP providers may behave differently.
+- False positives are possible, especially with aggressive keyword/regex rules or legitimate senders that fail
+  SPF/DMARC. Always review dry-run output before using `--apply`.
+
+## Retention
+
+Scan/report history (web app) lives in `scan_history.db`, entirely separate from the IMAP resume checkpoints
+in `state.db`. Clearing history from the web UI's privacy panel never touches checkpoints; resetting
+checkpoints is a distinct, explicit action.
+
+## Development / testing
+
+```bash
+pip install -r requirements.txt
+python -m pytest -q
 ```
 
-Recommended `.gitignore`:
+All IMAP, VirusTotal, and web API calls are mocked or exercised via FastAPI's test client in tests — the
+suite never touches a real mailbox or the internet.
 
-```gitignore
-__pycache__/
-*.pyc
-.env
-.venv/
-venv/
-```
+## Security considerations
 
----
+- Never commit `config.local.json`, `.env`, or `state.db`.
+- Credentials are only ever read from environment variables or your local config file, never hardcoded.
+- No credentials, message bodies, or full findings are written to logs.
 
-## 🔒 Security Considerations
+## Disclaimer
 
-This project handles highly sensitive information, including email credentials and message contents.
-
-### Never commit:
-
-```text
-APP_PASSWORD
-VT_API_KEY
-.env
-credentials.json
-```
-
-Use environment variables or a secrets manager where possible.
-
-Also remember that **VirusTotal submissions may have privacy implications** depending on the service/API tier and how URLs are submitted. Review VirusTotal's current terms and privacy documentation before using the scanner with sensitive links.
-
----
-
-## ⚠️ Limitations
-
-No spam filter is perfect.
-
-False positives can occur, particularly when:
-
-* aggressive regex rules are used
-* legitimate emails fail SPF/DMARC
-* a trusted sender uses a suspicious URL
-* a legitimate domain is mistakenly added to a blocklist
-
-For this reason, **Dry-Run mode should be used before deploying new rules.**
-
----
-
-## 📊 Processing Strategy
-
-The core design principle is:
-
-```text
-Cheap local checks
-        ↓
-More expensive local checks
-        ↓
-External reputation analysis
-```
-
-This minimizes:
-
-* VirusTotal API calls
-* unnecessary network traffic
-* processing time
-* exposure to API rate limits
-
-The result is a more efficient filtering pipeline for large mailboxes.
-
----
-
-## 🤝 Contributing
-
-Contributions, improvements, and additional filtering techniques are welcome.
-
-Typical areas for improvement include:
-
-* additional authentication checks
-* improved phishing detection
-* HTML analysis
-* attachment scanning
-* machine-learning based classification
-* better provider compatibility
-* richer logging and metrics
-* asynchronous processing
-
----
-
-## 📜 Disclaimer
-
-This project is provided **as-is** and without guarantees.
-
-Always use:
-
-```python
-DRY_RUN = True
-```
-
-when introducing or modifying filtering rules.
-
-The author is **not responsible for lost, quarantined, or incorrectly classified emails** resulting from the use of this software.
-
----
-
-## ⭐ If You Find It Useful
-
-Consider giving the repository a ⭐ on GitHub and contributing improvements back to the project.
+Provided as-is. Always review dry-run output before enabling `--apply`. The author is not responsible for
+messages quarantined, missed, or misclassified by this software.

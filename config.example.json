@@ -1,0 +1,26 @@
+{
+  "email": "your_email@yahoo.com",
+  "app_password": "put_your_app_password_here",
+  "imap_server": "imap.mail.yahoo.com",
+
+  "folders": ["INBOX"],
+  "quarantine_folder": "Scanner Quarantine",
+
+  "blocked_domains": [],
+  "safe_domains": ["google.com", "apple.com", "microsoft.com"],
+  "spam_keywords": [],
+  "regex_rules": [],
+  "spoof_identifiers": [],
+
+  "score_threshold": 60,
+
+  "virustotal_enabled": false,
+  "vt_api_key": "put_your_virustotal_api_key_here",
+  "vt_min_malicious_votes": 2,
+
+  "store_subject_in_checkpoint": false,
+  "max_retries": 3,
+  "backoff_base_seconds": 2.0,
+  "backoff_max_seconds": 120.0,
+  "state_db_path": "state.db"
+}

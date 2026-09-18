@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+state.db
+state.db-*
+scan_history.db
+scan_history.db-*
+config.local.json
+reports/
+.pytest_cache/
