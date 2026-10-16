@@ -109,19 +109,30 @@ def test_apply_move_uses_uid_move_when_supported():
     mail.expunge.assert_not_called()
 
 
-def test_ensure_folder_exists_quotes_name_with_spaces_for_select_and_create():
+def test_ensure_folder_exists_quotes_name_with_spaces_for_list_and_create():
     mail = MagicMock()
-    mail.select.return_value = ("NO", [b"does not exist"])
+    mail.list.return_value = ("OK", [None])
+    mail.create.return_value = ("OK", [b"CREATE completed"])
     ensure_folder_exists(mail, "Scanner Quarantine")
-    mail.select.assert_called_once_with('"Scanner Quarantine"', readonly=True)
+    mail.list.assert_called_once_with('""', '"Scanner Quarantine"')
     mail.create.assert_called_once_with('"Scanner Quarantine"')
+    mail.select.assert_not_called()
 
 
 def test_ensure_folder_exists_skips_create_when_already_present():
     mail = MagicMock()
-    mail.select.return_value = ("OK", [b"1"])
+    mail.list.return_value = ("OK", [b'(\HasNoChildren) "/" "Scanner Quarantine"'])
     ensure_folder_exists(mail, "Scanner Quarantine")
     mail.create.assert_not_called()
+    mail.select.assert_not_called()
+
+
+def test_ensure_folder_exists_raises_when_create_fails():
+    mail = MagicMock()
+    mail.list.return_value = ("OK", [None])
+    mail.create.return_value = ("NO", [b"quota exceeded"])
+    with pytest.raises(RuntimeError, match="Scanner Quarantine"):
+        ensure_folder_exists(mail, "Scanner Quarantine")
 
 
 def test_list_folders_parses_quoted_name_with_space():

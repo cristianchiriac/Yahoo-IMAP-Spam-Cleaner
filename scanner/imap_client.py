@@ -73,6 +73,10 @@ def list_folders(mail: imaplib.IMAP4_SSL) -> list[str]:
     status, data = mail.list()
     if status != "OK" or not data:
         return []
+    return _parse_list_response(data)
+
+
+def _parse_list_response(data) -> list[str]:
     folders = []
     for entry in data:
         if not entry:
@@ -181,7 +185,14 @@ def apply_move(mail: imaplib.IMAP4_SSL, uid: str, destination_folder: str) -> No
 
 
 def ensure_folder_exists(mail: imaplib.IMAP4_SSL, folder: str) -> None:
-    status, data = mail.select(_quote_mailbox(folder), readonly=True)
-    if status == "OK":
+    """Creates `folder` if it doesn't exist, WITHOUT touching the currently
+    selected mailbox. Checking existence via SELECT/EXAMINE would silently
+    switch the session to `folder` (or, if it's missing, leave no mailbox
+    selected at all), so a following UID MOVE/FETCH would run against the
+    wrong mailbox. LIST has no effect on the selected mailbox."""
+    status, data = mail.list('""', _quote_mailbox(folder))
+    if status == "OK" and folder in _parse_list_response(data or []):
         return
-    mail.create(_quote_mailbox(folder))
+    status, response = mail.create(_quote_mailbox(folder))
+    if status != "OK":
+        raise RuntimeError(f"Could not create folder {folder!r}: {response}")

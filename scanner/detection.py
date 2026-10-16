@@ -4,8 +4,9 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from email.header import decode_header, make_header
 from email.message import Message
-from email.utils import parseaddr
+from email.utils import parseaddr, quote
 
 from .config import ScanConfig, HARD_MATCH_SIGNALS
 
@@ -54,6 +55,40 @@ def normalize_text(text: str) -> str:
         c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn"
     )
     return re.sub(r"\s+", " ", without_diacritics)
+
+
+def decode_header_value(value) -> str:
+    """Decodes RFC 2047 encoded-words ('=?UTF-8?B?...?=') and unfolds the
+    header. Messages parsed with the default compat32 policy keep headers
+    encoded, so without this every keyword/brand check silently misses any
+    subject or display name with non-ASCII text. Malformed encodings fall
+    back to the raw text instead of failing the message."""
+    if value is None:
+        return ""
+    text = str(value)
+    try:
+        text = str(make_header(decode_header(text)))
+    except Exception:  # noqa: BLE001 - hostile/malformed headers must not abort a scan
+        pass
+    lines = text.splitlines()
+    if len(lines) <= 1:
+        return text
+    return " ".join([lines[0].rstrip()] + [line.strip() for line in lines[1:]])
+
+
+def normalize_from_header(raw_from) -> str:
+    """Returns the From header with its display name decoded, as
+    '"Name" <address>'. The address is taken from the RAW header and only the
+    display name is decoded: a name that decodes to 'PayPal
+    <service@paypal.com>' must never be able to replace the real address."""
+    raw_text = "" if raw_from is None else str(raw_from)
+    name, addr = parseaddr(raw_text)
+    if not addr:
+        return decode_header_value(raw_text)
+    name = decode_header_value(name).strip()
+    if not name:
+        return addr
+    return f'"{quote(name)}" <{addr}>'
 
 
 def _domain_of(email_addr: str) -> str:
@@ -269,18 +304,27 @@ def check_email_auth(msg: Message) -> Signal | None:
     return None
 
 
+def _decode_part(part: Message) -> str:
+    """Decodes a part's payload using its declared charset (e.g. iso-8859-2,
+    windows-1250), falling back to UTF-8 for a missing or unknown one."""
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="ignore")
+    except LookupError:
+        return payload.decode("utf-8", errors="ignore")
+
+
 def get_email_body(msg: Message) -> str:
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
             if part.get_content_type() in ("text/plain", "text/html"):
-                payload = part.get_payload(decode=True)
-                if payload:
-                    body += payload.decode(errors="ignore")
+                body += _decode_part(part)
     else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            body = payload.decode(errors="ignore")
+        body = _decode_part(msg)
     return body
 
 
@@ -330,8 +374,8 @@ def evaluate_message(
     from .config import DEFAULT_SCORE_WEIGHTS  # local import to avoid cycle at module load
 
     weights = cfg.score_weights or DEFAULT_SCORE_WEIGHTS
-    from_header = str(msg.get("From", ""))
-    subject = str(msg.get("Subject", ""))
+    from_header = normalize_from_header(msg.get("From", ""))
+    subject = decode_header_value(msg.get("Subject", ""))
     signals: list[Signal] = []
     incomplete = False
 

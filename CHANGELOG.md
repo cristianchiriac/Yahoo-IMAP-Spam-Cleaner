@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Security (script injection via email headers in the web UI and HTML report)
+- HTML report: findings were embedded with `json.dumps` inside a `<script>` block, so a subject containing
+  `</script>` closed it and ran the rest as script. `<` is now emitted as `\u003c`. All finding fields the
+  report renders (`detail`, `name`, `matched_hard_rule`, subject, sender, ...) now go through an escape
+  helper, and folder/scan id are HTML-escaped in the static markup.
+- Web UI: the Whitelist / Block & delete buttons built `onclick="blockAndDelete(..., '<sender>')"` with
+  HTML-entity escaping, which the browser decodes before running the handler, so a `'` in the From header
+  broke out of the JS string. The buttons now carry only a numeric `data-i`, and one delegated listener
+  looks the finding up. Verified in the browser: the old pattern executes an injected From header, the new
+  one sends the exact sender to the API and runs nothing.
+- New tests: `tests/test_reports.py`.
+
+### Fixed (apply mode read and moved from the wrong mailbox)
+`ensure_folder_exists` checked for the quarantine folder with `SELECT ... readonly=True`, which switched
+the session's selected mailbox to the quarantine folder (or, when it was missing, left none selected).
+The following `UID MOVE` then ran against the read-only quarantine folder, and later fetches read from it.
+It now checks with `LIST` (no effect on the selected mailbox) and raises if `CREATE` fails. The scan
+engine prepares the quarantine folder once per source folder instead of before every move. New stateful
+IMAP fake in `tests/test_quarantine_mailbox_state.py` tracks the selected mailbox and read-only state,
+which the previous `MagicMock`-based tests could not catch.
+
+### Fixed (detection ignored RFC 2047-encoded headers and non-UTF-8 bodies)
+Messages are parsed with the compat32 policy, which leaves `=?UTF-8?B?...?=` headers encoded, so keyword,
+brand-name and spoofed-sender checks never matched a non-ASCII subject or display name. Subject and the
+From display name are now decoded (`decode_header_value` / `normalize_from_header`); the address itself
+is still taken from the raw header, so a display name that decodes to `Name <other@domain>` cannot
+replace it. Body parts are decoded with their declared charset (e.g. iso-8859-2) with a UTF-8 fallback.
+New tests: `tests/test_encoded_headers.py`.
+
 ### Added ("Don't show this again" for the permanent-delete confirmation)
 Replaced the native `confirm()` dialog for "Block address/domain & delete" with a custom modal (styled to
 match the app), since a browser-native confirm can't host a checkbox. It offers a "Don't show this again"

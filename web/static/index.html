@@ -654,6 +654,7 @@ let currentScanId = null;
 let currentFindings = [];
 let findingFilter = 'all';
 let findingsPage = 0;
+let renderedFindings = [];
 const FINDINGS_PAGE_SIZE = 25;
 let configSaved = false;
 let connectionOk = false;
@@ -1004,6 +1005,7 @@ function renderFindings() {
     return;
   }
 
+  renderedFindings = pageItems;
   list.innerHTML = pageItems.map((f, i) => {
     const index = findingsPage * FINDINGS_PAGE_SIZE + i;
     const subject = f.subject || '(no subject)';
@@ -1013,14 +1015,15 @@ function renderFindings() {
       `<span class="signal ${s.hard_match ? 'hard' : ''}" title="${escapeAttr(s.detail || '')}"><b>${escapeHtml(s.name || 'signal')}</b>${s.weight ? ` +${escapeHtml(String(s.weight))}` : ''}</span>`
     ).join('') || '<span class="signal">No scored signals</span>';
     const hard = f.matched_hard_rule ? `<span class="signal hard"><b>Hard match</b> ${escapeHtml(f.matched_hard_rule)}</span>` : '';
+    // Sender/folder/domain are attacker-controlled (they come from the email's
+    // headers), so they are never put into inline JS. Buttons only carry the
+    // finding's position on this page; the click handler looks the finding up.
     const whitelistBtn = domain
-      ? `<button class="finding-toggle" style="margin-left:10px" onclick="whitelistDomain('${escapeAttr(domain)}')">Whitelist ${escapeHtml(domain)}</button>`
+      ? `<button class="finding-toggle" style="margin-left:10px" data-action="whitelist" data-i="${i}">Whitelist ${escapeHtml(domain)}</button>`
       : '';
-    const folder = f.folder || '';
-    const blockArgs = `${index}, '${escapeAttr(folder)}', '${escapeAttr(String(f.uid || ''))}', '${escapeAttr(sender)}'`;
-    const blockBtns = folder ? `
-      <button class="finding-toggle" style="margin-left:10px;color:#ff9aa3" onclick="blockAndDelete(${blockArgs}, true, false)">Block address &amp; delete</button>
-      <button class="finding-toggle" style="margin-left:10px;color:#ff9aa3" onclick="blockAndDelete(${blockArgs}, false, true)">Block domain &amp; delete</button>
+    const blockBtns = f.folder ? `
+      <button class="finding-toggle" style="margin-left:10px;color:#ff9aa3" data-action="block-address" data-i="${i}">Block address &amp; delete</button>
+      <button class="finding-toggle" style="margin-left:10px;color:#ff9aa3" data-action="block-domain" data-i="${i}">Block domain &amp; delete</button>
     ` : '';
     return `
       <article class="finding ${escapeAttr(f.verdict || 'clean')}" id="finding-${index}">
@@ -1097,7 +1100,7 @@ function confirmPermanentDelete(message) {
   });
 }
 
-async function blockAndDelete(index, folder, uid, sender, blockAddress, blockDomain) {
+async function blockAndDelete(folder, uid, sender, blockAddress, blockDomain) {
   const target = blockAddress ? senderAddress(sender) : senderDomain(sender);
   if (!target) {
     toast('Could not determine an address/domain to block.', 'err');
@@ -1139,6 +1142,19 @@ async function whitelistDomain(domain) {
     toast(`Whitelist failed: ${e.message}`, 'err');
   }
 }
+
+document.getElementById('findings-list').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const f = renderedFindings[Number(btn.dataset.i)];
+  if (!f) return;
+  const sender = f.sender || '';
+  const folder = f.folder || '';
+  const uid = String(f.uid || '');
+  if (btn.dataset.action === 'whitelist') whitelistDomain(senderDomain(sender));
+  else if (btn.dataset.action === 'block-address') blockAndDelete(folder, uid, sender, true, false);
+  else if (btn.dataset.action === 'block-domain') blockAndDelete(folder, uid, sender, false, true);
+});
 
 function toggleFinding(index) {
   const el = document.getElementById(`finding-${index}`);

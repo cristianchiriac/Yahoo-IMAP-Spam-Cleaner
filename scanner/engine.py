@@ -185,6 +185,20 @@ def scan_folder(
         )
         apply_errors.append(msg_text)
         log(f"⚠️ {msg_text}")
+    elif apply:
+        try:
+            _call_with_reconnect(
+                conn, cfg, folder, apply, uidvalidity, log,
+                lambda m: imap_client.ensure_folder_exists(m, cfg.quarantine_folder),
+            )
+        except Exception as exc:  # noqa: BLE001
+            msg_text = (
+                f"Could not prepare quarantine folder '{cfg.quarantine_folder}' ({exc}); "
+                "no messages will be moved from this folder."
+            )
+            apply_errors.append(msg_text)
+            log(f"⚠️ {msg_text}")
+            move_supported = False
 
     connection_cycle_count = 0
 
@@ -260,8 +274,7 @@ def scan_folder(
             try:
                 _call_with_reconnect(
                     conn, cfg, folder, apply, uidvalidity, log,
-                    lambda m, u=uid: imap_client.ensure_folder_exists(m, cfg.quarantine_folder) or
-                    imap_client.apply_move(m, u, cfg.quarantine_folder),
+                    lambda m, u=uid: imap_client.apply_move(m, u, cfg.quarantine_folder),
                 )
                 applied_moves.append(uid)
                 log(f"[{idx}/{len(uids)}] uid {uid}: moved to '{cfg.quarantine_folder}'")

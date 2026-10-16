@@ -1,6 +1,7 @@
 """JSON and self-contained HTML reporting, built from a single source of truth."""
 from __future__ import annotations
 
+import html
 import json
 import time
 from pathlib import Path
@@ -59,10 +60,13 @@ input[type=text] {{ width: 100%; padding: 0.5rem; margin-bottom: 1rem; border-ra
 <div id="cards"></div>
 <script>
 const REPORT = {data_json};
+function esc(v) {{
+  return String(v ?? '').replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+}}
 function renderSummary() {{
   const s = REPORT.summary;
   const el = document.getElementById('summary');
-  el.innerHTML = Object.entries(s).map(([k,v]) => `<div class="tile"><div class="n">${{v}}</div><div class="l">${{k}}</div></div>`).join('');
+  el.innerHTML = Object.entries(s).map(([k,v]) => `<div class="tile"><div class="n">${{esc(v)}}</div><div class="l">${{esc(k)}}</div></div>`).join('');
 }}
 function renderCards(filterText) {{
   const container = document.getElementById('cards');
@@ -73,18 +77,18 @@ function renderCards(filterText) {{
     return hay.includes(ft);
   }});
   container.innerHTML = items.map(f => `
-    <details class="card ${{f.verdict}}">
+    <details class="card ${{esc(f.verdict)}}">
       <summary>
-        <span class="badge">${{f.verdict.toUpperCase()}}</span>
-        <span class="score">score ${{f.score}}</span>
-        <span>UID ${{f.uid}}</span>
-        <strong>${{(f.subject||'(no subject)').replace(/</g,'&lt;')}}</strong>
-        <span>from ${{(f.sender||'').replace(/</g,'&lt;')}}</span>
+        <span class="badge">${{esc(f.verdict).toUpperCase()}}</span>
+        <span class="score">score ${{esc(f.score)}}</span>
+        <span>UID ${{esc(f.uid)}}</span>
+        <strong>${{esc(f.subject||'(no subject)')}}</strong>
+        <span>from ${{esc(f.sender)}}</span>
       </summary>
       <div class="signals">
-        ${{f.matched_hard_rule ? `<div>Hard match: <b>${{f.matched_hard_rule}}</b></div>` : ''}}
+        ${{f.matched_hard_rule ? `<div>Hard match: <b>${{esc(f.matched_hard_rule)}}</b></div>` : ''}}
         <ul>
-          ${{(f.signals||[]).map(s => `<li>${{s.name}} (+${{s.weight}}): ${{s.detail}}</li>`).join('')}}
+          ${{(f.signals||[]).map(s => `<li>${{esc(s.name)}} (+${{esc(s.weight)}}): ${{esc(s.detail)}}</li>`).join('')}}
         </ul>
       </div>
     </details>
@@ -99,12 +103,20 @@ renderCards('');
 """
 
 
+def _json_for_script(data: dict) -> str:
+    """JSON safe to embed inside a <script> block. json.dumps leaves '<'
+    as-is, so a subject containing '</script>' would otherwise end the block
+    and run the rest of the subject as markup/script. The \\u003c escape is
+    still the same character to the JSON/JS parser."""
+    return json.dumps(data).replace("<", "\\u003c")
+
+
 def build_html_report(data: dict) -> str:
     return _HTML_TEMPLATE.format(
-        scan_id=data.get("scan_id", ""),
-        folder=data.get("folder", ""),
-        mode=data.get("mode", ""),
-        data_json=json.dumps(data),
+        scan_id=html.escape(str(data.get("scan_id", ""))),
+        folder=html.escape(str(data.get("folder", ""))),
+        mode=html.escape(str(data.get("mode", ""))),
+        data_json=_json_for_script(data),
     )
 
 

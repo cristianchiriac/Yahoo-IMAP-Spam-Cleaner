@@ -19,6 +19,8 @@ def make_mail_mock(uids, raw_by_uid, uidvalidity=111, move_supported=False):
     mail.select.return_value = ("OK", [b"1"])
     mail.response.return_value = ("OK", [str(uidvalidity).encode()])
     mail.capability.return_value = ("OK", [b"MOVE"] if move_supported else [b"UIDPLUS"])
+    mail.list.return_value = ("OK", [None])
+    mail.create.return_value = ("OK", [b"CREATE completed"])
 
     def uid_side_effect(command, *args):
         if command == "SEARCH":
