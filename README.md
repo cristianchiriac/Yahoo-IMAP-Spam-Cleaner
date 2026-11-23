@@ -1,7 +1,6 @@
 <div align="center">
 
-# 🛡️ Yahoo IMAP Scanner
-### *Local Mail Guardian*
+# Local Mail Guardian
 
 **A local-first, privacy-first spam & phishing scanner for Yahoo Mail.**
 No cloud backend. No accounts. No telemetry. Everything runs on your own machine.
